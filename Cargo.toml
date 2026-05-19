@@ -34,6 +34,10 @@ rust_xlsxwriter = "0.95" # 写入 Excel
 # 5. PDF 拆解清洗 (PDF -> 图片, PDF -> Markdown)
 pdf_oxide = "0.3"          # 🌟 高性能 PDF 文本/结构化提纯器，MD 输出（含 heading 检测）
 pdfium-render = "0.9"      # 🌟 工业级 PDF 光栅化渲染（封装 Google pdfium）
+# HTML 解析与生成（MD -> HTML -> PDF 的中间桥梁）
+mdka = "2.1"
+headless_chrome = "1.0" # 🌟 核心：无头 Chrome 驱动，负责 HTML -> PDF 的高保真渲染
+url = "2.5"
 
 [profile.release]
 opt-level = "z"       # 🌟 核心：从 "3"（优化速度）改为 "z"（追求极致的最小体积）

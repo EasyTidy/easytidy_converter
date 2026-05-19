@@ -18,6 +18,7 @@ use modules::office_engine::{
     convert_md_to_docx,
 };
 use modules::pdf_engine::{convert_pdf_to_image, convert_pdf_to_markdown};
+use modules::workflow_nodes::{convert_html_to_pdf, convert_html_to_md, convert_excel_to_csv};
 use modules::typst_engine::{convert_md_to_image, convert_md_to_pdf};
 
 static LOGGER_INIT: Once = Once::new();
@@ -87,6 +88,12 @@ fn convert_file(src: &std::path::Path, tgt: &std::path::Path) -> Result<()> {
         (FileKind::Docx, FileKind::Txt) => convert_docx_to_plain_text(src, tgt),
         (FileKind::Pdf, img) if is_image_kind(img) => convert_pdf_to_image(src, tgt, img),
         (FileKind::Pdf, FileKind::Md) => convert_pdf_to_markdown(src, tgt),
+        // Node: HTML -> PDF
+        (FileKind::Html, FileKind::Pdf) => convert_html_to_pdf(src, tgt),
+        // Node: HTML -> Markdown
+        (FileKind::Html, FileKind::Md) => convert_html_to_md(src, tgt),
+        // Node: XLSX -> CSV
+        (FileKind::Xlsx, FileKind::Csv) => convert_excel_to_csv(src, tgt),
         _ => bail!("unsupported conversion route: {src_kind:?} -> {tgt_kind:?}"),
     }
 }

@@ -111,6 +111,8 @@ pub enum FileKind {
     Docx,
     Xlsx,
     Txt,
+    Html,
+    Csv,
 }
 
 pub(crate) unsafe fn c_path_from_ptr(ptr: *const c_char) -> Result<PathBuf> {
@@ -161,6 +163,8 @@ pub(crate) fn detect_kind(path: &Path) -> Result<FileKind> {
         "docx" => FileKind::Docx,
         "xlsx" | "xls" | "ods" => FileKind::Xlsx,
         "txt" => FileKind::Txt,
+        "html" | "htm" => FileKind::Html,
+        "csv" => FileKind::Csv,
         _ => bail!("extension not supported: {ext}"),
     };
 
