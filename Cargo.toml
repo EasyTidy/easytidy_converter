@@ -1,0 +1,43 @@
+[package]
+name = "easytidy_converter"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 1. 核心错误处理与日志
+anyhow = "1.0"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
+
+# 2. 图片格式互转 (JPG, PNG, WebP, BMP, GIF)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif"] }
+webp = "0.3" # 专门用于高保真/有损 WebP 压缩瘦身
+
+# 3. Markdown 核心解析与互转 (MD -> PDF, MD -> 图片, MD -> Word)
+typst = "0.14" # 🌟 核心：替代 Pandoc 的现代渲染引擎，负责 MD -> PDF / 图片
+typst-pdf = "0.14"
+typst-render = "0.14"
+typst-assets = { version = "0.14", default-features = false }
+comrak = "0.52" # 负责 Markdown 语法解析
+docx-rs = "0.4" # 🌟 核心：纯 Rust 实现的 OpenXML Word 读写器，负责 MD -> Word 以及 Word -> MD
+zip = "7"
+quick-xml = "0.40"
+
+# 4. Excel 数据抽取 (Excel -> MD/CSV)
+calamine = "0.35" # 极速读取 Excel (.xlsx, .xls, .ods)
+rust_xlsxwriter = "0.95" # 写入 Excel
+
+# 5. PDF 拆解清洗 (PDF -> 图片, PDF -> Markdown)
+pdf_oxide = "0.3"          # 🌟 高性能 PDF 文本/结构化提纯器，MD 输出（含 heading 检测）
+pdfium-render = "0.9"      # 🌟 工业级 PDF 光栅化渲染（封装 Google pdfium）
+
+[profile.release]
+opt-level = "z"       # 🌟 核心：从 "3"（优化速度）改为 "z"（追求极致的最小体积）
+lto = true            # 🌟 核心：开启全局链接期优化 (Link-Time Optimization)，剔除跨 Crate 的死代码
+codegen-units = 1     # 🌟 核心：将并行编译单元限制为 1，牺牲编译速度以换取更极致的全局优化和死代码剔除
+panic = "abort"       # 🌟 核心：移除昂贵的 Panic 展开栈追踪逻辑，发生 Panic 时直接崩溃（我们已有 FFI 层的拦截守护，非常安全）
+strip = true          # 🌟 核心：彻底剥离 DLL 中残存的所有符号表、调试信息、行号，可直接暴减十几兆体积
