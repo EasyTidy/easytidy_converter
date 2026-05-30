@@ -43,5 +43,6 @@ url = "2.5"
 opt-level = "z"       # 🌟 核心：从 "3"（优化速度）改为 "z"（追求极致的最小体积）
 lto = true            # 🌟 核心：开启全局链接期优化 (Link-Time Optimization)，剔除跨 Crate 的死代码
 codegen-units = 1     # 🌟 核心：将并行编译单元限制为 1，牺牲编译速度以换取更极致的全局优化和死代码剔除
-panic = "abort"       # 🌟 核心：移除昂贵的 Panic 展开栈追踪逻辑，发生 Panic 时直接崩溃（我们已有 FFI 层的拦截守护，非常安全）
+panic = "unwind"     # 🌟 核心：FFI 层 (lib.rs) 依赖 std::panic::catch_unwind 捕获 panic 并转成错误码返回给 C#。
+                     # 必须是 "unwind"：若设为 "abort"，catch_unwind 会失效，任何 panic 都会直接终止宿主进程（C# 应用闪退）。
 strip = true          # 🌟 核心：彻底剥离 DLL 中残存的所有符号表、调试信息、行号，可直接暴减十几兆体积

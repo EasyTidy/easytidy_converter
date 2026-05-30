@@ -1,5 +1,5 @@
 use std::ffi::c_char;
-use std::sync::{Once, OnceLock};
+use std::sync::{Mutex, Once, OnceLock};
 
 use anyhow::{Context, Result, anyhow, bail};
 use pdfium_render::prelude::Pdfium;
@@ -23,6 +23,26 @@ use modules::typst_engine::{convert_md_to_image, convert_md_to_pdf};
 
 static LOGGER_INIT: Once = Once::new();
 pub(crate) static PDFIUM_INSTANCE: OnceLock<Pdfium> = OnceLock::new();
+/// 串行化 pdfium 的初始化。
+///
+/// `Pdfium::new()` 内部会对 pdfium-render 自己的进程级全局 `BINDINGS`（OnceCell）做
+/// `assert!(BINDINGS.get().is_none())` 和 `assert!(BINDINGS.set(..).is_ok())`，并调用
+/// `FPDF_InitLibrary()`——整个进程只能成功执行一次。`get_pdfium_instance` 里仅靠
+/// `PDFIUM_INSTANCE.get()` 做检查存在 TOCTOU 竞态：两个转换线程（heavy-task 限流允许 2 个并发）
+/// 可能同时看到 `None`，于是各自调用 `Pdfium::new()`，导致第二次 `BINDINGS.set` 失败而 panic，
+/// 并因 `FPDF_InitLibrary` 被重复调用而破坏 pdfium 原生全局状态（随后 0xC0000005 访问冲突）。
+/// 用这个 Mutex 把“检查 + 初始化”整体串行化，确保 `Pdfium::new()` 全进程只跑一次。
+static PDFIUM_INIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// 串行化所有 pdfium 渲染操作。
+///
+/// pdfium-render 0.9 的 `thread_safe` feature 只是给 `Pdfium` 加了 `unsafe impl Send + Sync`
+/// （见 pdfium.rs 末尾），并不会对底层 FFI 调用做任何加锁；而 Google pdfium 原生库本身
+/// 不是线程安全的。本项目的重任务限流允许 2 个并发（common.rs 的 HEAVY_TASK_PERMITS=2），
+/// 因此可能有两个 PDF→图片任务同时调用 pdfium，触发未定义行为（0xC0000005 访问冲突）。
+/// `convert_pdf_to_image` 全程持有此锁，把“打开文档 + 渲染各页”整体串行化。
+pub(crate) static PDFIUM_RENDER_LOCK: Mutex<()> = Mutex::new(());
+
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn easytidy_convert_file(src_ptr: *const c_char, tgt_ptr: *const c_char) -> i32 {
@@ -99,6 +119,20 @@ fn convert_file(src: &std::path::Path, tgt: &std::path::Path) -> Result<()> {
 }
 
 pub(crate) fn get_pdfium_instance() -> Result<&'static Pdfium> {
+    // 快路径：已初始化则直接返回，无需加锁。
+    if let Some(instance) = PDFIUM_INSTANCE.get() {
+        return Ok(instance);
+    }
+
+    // 慢路径：加锁串行化初始化，避免多线程同时调用 Pdfium::new() 触发
+    // pdfium-render 全局 BINDINGS 的二次 set panic 以及 FPDF_InitLibrary 重复初始化。
+    // 锁保护的数据是 ()，即便某次持锁期间 panic 导致中毒也可安全恢复，
+    // 否则被 FFI 守护捕获的一次 panic 会让后续所有转换永久失败。
+    let _guard = PDFIUM_INIT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // 持锁后再次检查：可能在等待锁期间已被其它线程完成初始化。
     if let Some(instance) = PDFIUM_INSTANCE.get() {
         return Ok(instance);
     }
@@ -112,6 +146,7 @@ pub(crate) fn get_pdfium_instance() -> Result<&'static Pdfium> {
             )
         })?;
 
+    // 此处仍持有 PDFIUM_INIT_LOCK，保证全进程只有一个线程能执行 Pdfium::new()。
     let _ = PDFIUM_INSTANCE.set(Pdfium::new(bindings));
 
     PDFIUM_INSTANCE

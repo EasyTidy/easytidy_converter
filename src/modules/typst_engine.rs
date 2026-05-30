@@ -17,7 +17,7 @@ use crate::common::{
     FileKind, MAX_TEXT_INPUT_BYTES, MAX_TYPST_PAGES, acquire_heavy_task_permit, ensure_parent_dir,
     read_text_file_limited,
 };
-use crate::modules::image_engine::{image_format_from_kind, save_as_webp};
+use crate::modules::image_engine::{image_format_from_kind, save_as_gif, save_as_webp};
 
 static GLOBAL_FONTS: OnceLock<Vec<Font>> = OnceLock::new();
 
@@ -61,6 +61,8 @@ pub(crate) fn convert_md_to_image(src: &Path, tgt: &Path, tgt_kind: FileKind) ->
     let save_page = |img: DynamicImage, out: &Path| -> Result<()> {
         if tgt_kind == FileKind::Webp {
             save_as_webp(&img, out)
+        } else if tgt_kind == FileKind::Gif {
+            save_as_gif(&img, out)
         } else {
             let format = image_format_from_kind(tgt_kind)?;
             img.save_with_format(out, format)

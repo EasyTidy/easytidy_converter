@@ -12,8 +12,8 @@ use crate::common::{
     EngineError, FileKind, MAX_BINARY_INPUT_BYTES, MAX_PDF_PAGES, acquire_heavy_task_permit,
     ensure_file_size_within, ensure_parent_dir,
 };
-use crate::get_pdfium_instance;
-use crate::modules::image_engine::{image_format_from_kind, save_as_webp};
+use crate::{get_pdfium_instance, PDFIUM_RENDER_LOCK};
+use crate::modules::image_engine::{image_format_from_kind, save_as_gif, save_as_webp};
 
 pub(crate) fn convert_pdf_to_markdown(src: &Path, tgt: &Path) -> Result<()> {
     info!("pdf->md start: src={}, tgt={}", src.display(), tgt.display());
@@ -85,6 +85,13 @@ pub(crate) fn convert_pdf_to_image(src: &Path, tgt: &Path, tgt_kind: FileKind) -
     ensure_file_size_within(src, MAX_BINARY_INPUT_BYTES)?;
     let pdfium = get_pdfium_instance()?;
 
+    // pdfium 原生库非线程安全，且 pdfium-render 不会对 FFI 调用加锁。
+    // 全程持锁，串行化文档加载与逐页渲染，避免并发任务触发 0xC0000005。
+    // 锁保护的数据是 ()，持锁期间若 panic 导致中毒也可安全恢复。
+    let _render_guard = PDFIUM_RENDER_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let doc = pdfium
         .load_pdf_from_file(src, None)
         .with_context(|| format!("failed to open PDF for rendering: {}", src.display()))?;
@@ -104,6 +111,8 @@ pub(crate) fn convert_pdf_to_image(src: &Path, tgt: &Path, tgt_kind: FileKind) -
     let save_page = |img: DynamicImage, out: &Path| -> Result<()> {
         if tgt_kind == FileKind::Webp {
             save_as_webp(&img, out)
+        } else if tgt_kind == FileKind::Gif {
+            save_as_gif(&img, out)
         } else {
             let fmt = image_format_from_kind(tgt_kind)?;
             img.save_with_format(out, fmt)
