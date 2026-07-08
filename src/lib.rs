@@ -99,14 +99,14 @@ fn convert_file(src: &std::path::Path, tgt: &std::path::Path) -> Result<()> {
     let tgt_kind = detect_kind(tgt).with_context(|| format!("unsupported tgt: {}", tgt.display()))?;
 
     match (src_kind, tgt_kind) {
-        (a, b) if is_image_kind(a) && is_image_kind(b) => convert_image(src, tgt, b),
+        (a, b) if is_image_kind(a) && is_image_kind(b) && b != FileKind::Heic => convert_image(src, tgt, b),
         (FileKind::Md, FileKind::Docx) => convert_md_to_docx(src, tgt),
         (FileKind::Md, FileKind::Pdf) => convert_md_to_pdf(src, tgt),
-        (FileKind::Md, img) if is_image_kind(img) => convert_md_to_image(src, tgt, img),
+        (FileKind::Md, img) if is_image_kind(img) && img != FileKind::Heic => convert_md_to_image(src, tgt, img),
         (FileKind::Xlsx, FileKind::Md) => convert_excel_to_markdown(src, tgt),
         (FileKind::Docx, FileKind::Md) => convert_docx_to_markdown(src, tgt),
         (FileKind::Docx, FileKind::Txt) => convert_docx_to_plain_text(src, tgt),
-        (FileKind::Pdf, img) if is_image_kind(img) => convert_pdf_to_image(src, tgt, img),
+        (FileKind::Pdf, img) if is_image_kind(img) && img != FileKind::Heic => convert_pdf_to_image(src, tgt, img),
         (FileKind::Pdf, FileKind::Md) => convert_pdf_to_markdown(src, tgt),
         // Node: HTML -> PDF
         (FileKind::Html, FileKind::Pdf) => convert_html_to_pdf(src, tgt),

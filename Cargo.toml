@@ -1,6 +1,6 @@
 [package]
 name = "easytidy_converter"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [lib]
@@ -38,6 +38,12 @@ pdfium-render = "0.9"      # 🌟 工业级 PDF 光栅化渲染（封装 Google 
 mdka = "2.1"
 headless_chrome = "1.0" # 🌟 核心：无头 Chrome 驱动，负责 HTML -> PDF 的高保真渲染
 url = "2.5"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_Storage_FileSystem", "Win32_System_Com"] }
+
+[target.'cfg(not(windows))'.dependencies]
+libheif-rs = { version = "2.7", default-features = false, features = ["v1_17", "image", "embedded-libheif"] }
 
 [profile.release]
 opt-level = "z"       # 🌟 核心：从 "3"（优化速度）改为 "z"（追求极致的最小体积）

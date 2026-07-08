@@ -106,6 +106,7 @@ pub enum FileKind {
     Webp,
     Bmp,
     Gif,
+    Heic,
     Md,
     Pdf,
     Docx,
@@ -158,6 +159,7 @@ pub(crate) fn detect_kind(path: &Path) -> Result<FileKind> {
         "webp" => FileKind::Webp,
         "bmp" => FileKind::Bmp,
         "gif" => FileKind::Gif,
+        "heic" | "heif" => FileKind::Heic,
         "md" | "markdown" => FileKind::Md,
         "pdf" => FileKind::Pdf,
         "docx" => FileKind::Docx,
@@ -174,7 +176,7 @@ pub(crate) fn detect_kind(path: &Path) -> Result<FileKind> {
 pub(crate) fn is_image_kind(kind: FileKind) -> bool {
     matches!(
         kind,
-        FileKind::Jpg | FileKind::Png | FileKind::Webp | FileKind::Bmp | FileKind::Gif
+        FileKind::Jpg | FileKind::Png | FileKind::Webp | FileKind::Bmp | FileKind::Gif | FileKind::Heic
     )
 }
 

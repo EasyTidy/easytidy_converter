@@ -2,18 +2,43 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
+#[cfg(not(target_os = "windows"))]
+use std::sync::Once;
 
 use anyhow::{Context, Result, anyhow, bail};
 use image::AnimationDecoder;
 use image::codecs::gif::{GifDecoder, GifEncoder, Repeat};
 use image::{DynamicImage, ImageFormat};
+#[cfg(not(target_os = "windows"))]
+use libheif_rs::integration::image::register_all_decoding_hooks;
 use log::{error, info};
+
+#[cfg(target_os = "windows")]
+use std::iter;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(target_os = "windows")]
+use windows::core::PCWSTR;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{GENERIC_READ, HRESULT};
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Imaging::{
+    CLSID_WICImagingFactory, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory,
+    WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
+};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Com::{
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
+};
 
 use crate::common::{
     EngineError, FileKind, MAX_BINARY_INPUT_BYTES, MAX_GIF_FRAMES, detect_kind, ensure_file_size_within,
 };
 
 const WEBP_QUALITY: f32 = 80.0;
+#[cfg(not(target_os = "windows"))]
+static HEIF_HOOKS_INIT: Once = Once::new();
+
 /// GIF 编码速度，取值范围 [1, 30]：数值越大越快、质量略降；数值越小越慢、质量越高。
 /// image crate 默认（`GifEncoder::new`）用 1，对整页 PDF 光栅图会非常慢且耗内存。
 /// 取 10 作为质量与性能的平衡点，足以保证文档类图片清晰可读。
@@ -60,9 +85,119 @@ fn load_any_image(src: &Path) -> Result<DynamicImage> {
             anyhow!("invalid webp RGBA buffer")
         })?;
         Ok(DynamicImage::ImageRgba8(rgba))
+    } else if src_kind == FileKind::Heic {
+        load_heic_image(src)
     } else {
         info!("decode raster source image with image::open: {}", src.display());
         image::open(src).with_context(|| format!("failed to decode image: {}", src.display()))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn load_heic_image(src: &Path) -> Result<DynamicImage> {
+    HEIF_HOOKS_INIT.call_once(register_all_decoding_hooks);
+    info!("decode heic/heif source image with libheif hook: {}", src.display());
+    image::open(src).with_context(|| format!("failed to decode image: {}", src.display()))
+}
+
+#[cfg(target_os = "windows")]
+struct ComScope {
+    should_uninitialize: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl ComScope {
+    fn enter() -> Result<Self> {
+        unsafe {
+            match CoInitializeEx(None, COINIT_MULTITHREADED).ok() {
+                Ok(()) => Ok(Self {
+                    should_uninitialize: true,
+                }),
+                Err(err) if err.code() == HRESULT(0x80010106u32 as i32) => Ok(Self {
+                    should_uninitialize: false,
+                }),
+                Err(err) => Err(anyhow!("failed to initialize COM for HEIC decode: {err}")),
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for ComScope {
+    fn drop(&mut self) {
+        if self.should_uninitialize {
+            unsafe {
+                CoUninitialize();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn load_heic_image(src: &Path) -> Result<DynamicImage> {
+    let _com = ComScope::enter()?;
+    info!("decode heic/heif source image with WIC: {}", src.display());
+
+    unsafe {
+        let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)
+            .context("failed to create WIC imaging factory")?;
+
+        let wide_path: Vec<u16> = src.as_os_str().encode_wide().chain(iter::once(0)).collect();
+        let decoder = factory
+            .CreateDecoderFromFilename(
+                PCWSTR(wide_path.as_ptr()),
+                None,
+                GENERIC_READ,
+                WICDecodeMetadataCacheOnDemand,
+            )
+            .map_err(|err| {
+                anyhow!(
+                    "failed to open HEIC/HEIF decoder for {}: {err}; ensure HEIF Image Extensions are installed",
+                    src.display()
+                )
+            })?;
+
+        let frame = decoder
+            .GetFrame(0)
+            .with_context(|| format!("failed to read HEIC frame: {}", src.display()))?;
+
+        let mut width = 0u32;
+        let mut height = 0u32;
+        frame
+            .GetSize(&mut width, &mut height)
+            .with_context(|| format!("failed to query HEIC size: {}", src.display()))?;
+
+        let converter = factory
+            .CreateFormatConverter()
+            .with_context(|| format!("failed to create WIC format converter: {}", src.display()))?;
+        converter
+            .Initialize(
+                &frame,
+                &GUID_WICPixelFormat32bppRGBA,
+                WICBitmapDitherTypeNone,
+                None,
+                0.0,
+                WICBitmapPaletteTypeCustom,
+            )
+            .with_context(|| format!("failed to convert HEIC pixels to RGBA: {}", src.display()))?;
+
+        let stride = width
+            .checked_mul(4)
+            .ok_or_else(|| anyhow!("HEIC image stride overflow: {}", src.display()))?;
+        let buffer_len = stride
+            .checked_mul(height)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| anyhow!("HEIC image buffer overflow: {}", src.display()))?;
+        let mut rgba = vec![0u8; buffer_len];
+
+        converter
+            .CopyPixels(std::ptr::null(), stride, &mut rgba)
+            .with_context(|| format!("failed to copy HEIC pixels: {}", src.display()))?;
+
+        let img = image::RgbaImage::from_raw(width, height, rgba).ok_or_else(|| {
+            anyhow!("invalid HEIC RGBA buffer dimensions: {}", src.display())
+        })?;
+        Ok(DynamicImage::ImageRgba8(img))
     }
 }
 
