@@ -39,11 +39,49 @@ mdka = "2.1"
 headless_chrome = "1.0" # 🌟 核心：无头 Chrome 驱动，负责 HTML -> PDF 的高保真渲染
 url = "2.5"
 
+# 6. HEIC/HEIF 解码：内嵌 libheif + libde265(HEVC 解码器)，不依赖 Windows「HEIF Image Extensions」商店扩展。
+#    仅需解码（本项目从不输出 HEIC），故只用 LGPL 的 de265 解码器，绝不启用 GPL 的 x265 编码器。
+libheif-rs = { version = "2.7", default-features = false, features = ["v1_17", "image"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_Storage_FileSystem", "Win32_System_Com"] }
 
+# 非 Windows(Linux/macOS)：从内嵌源码用 CMake 编译 libheif 并静态链接（系统需另装 libde265 等解码器）。
 [target.'cfg(not(windows))'.dependencies]
 libheif-rs = { version = "2.7", default-features = false, features = ["v1_17", "image", "embedded-libheif"] }
+
+# Windows(MSVC)：libheif-sys 的 build.rs 通过 vcpkg crate（读 VCPKG_ROOT）定位已装的 libheif。
+# libde265(HEVC 解码器, LGPL) 是 libheif 的基础依赖，自动装；aom 提供 AVIF 解码。
+# 关键：feature 里的 `core` 关闭 vcpkg 默认 feature，从而排除默认的 `hevc`(=GPL 的 x265 编码器)。
+#
+# 用【静态】链接(x64-windows-static-md)：libheif+libde265+aom 全部静态链入 easytidy_converter.dll，
+# 不产生独立 heif.dll，部署只需 1 个 DLL。
+#
+# 为什么不用动态(x64-windows)：实测 vcpkg 的 libheif 1.21.2 【共享】heif.dll 在被 LoadLibrary 加载时，
+# 其初始化(DllMain/全局构造，注册内置编解码器)必定失败，返回 0x8007045A(ERROR_DLL_INIT_FAILED)。
+# 已用 LOAD_LIBRARY_AS_DATAFILE 证实：文件与依赖(aom/de265/CRT)都正常，纯粹是 init 阶段失败；
+# 换目录、按依赖顺序预载、AddDllDirectory/PATH(easytidy_extract 的加载法)均无法规避——它治的是
+# "找不到依赖(0x7E)"，治不了"init 失败(0x45A)"。静态链接把编解码器注册移到我们自己 DLL 的初始化，
+# 绕过该缺陷。static-md 用动态 CRT(MD)，与 Rust MSVC 默认 ABI 一致，无需 +crt-static。
+#
+# LGPL-3.0 合规(闭源商用)：静态链接走 §4(d)(0) —— 需让用户能对(经修改的)libheif 重新链接。
+# 因 easytidy_converter 计划【单独开源】(与闭源 C# 主程序经 C ABI/P-Invoke 隔离，非 combined work)，
+# 提供其完整源码即满足"可重链接"要求；随产品分发 ThirdPartyNotices 声明 LGPL 组件与源码地址。
+#
+# 手动安装(用你本机的 vcpkg，非 cargo-vcpkg)：
+#   vcpkg install "libheif[core,aom]:x64-windows-static-md"
+# 构建(不要设 VCPKGRS_DYNAMIC，否则会去找 x64-windows 动态库)：
+#   VCPKG_ROOT=<vcpkg 路径> cargo build --release
+# 下面的 metadata 仅供将来改用 cargo-vcpkg 时参考，手动路线不读它。
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+tag = "2026.05.25"
+dependencies = ["libheif"]
+
+[package.metadata.vcpkg.target]
+# core = 关闭默认 feature(排除 GPL 的 hevc/x265)；aom = AVIF 解码。de265 解码器随基础依赖自动带入。
+# 静态链入主 DLL，故无需随附任何 heif/de265/aom/x265 的 .dll。
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dependencies = ["libheif[core,aom]"] }
 
 [profile.release]
 opt-level = "z"       # 🌟 核心：从 "3"（优化速度）改为 "z"（追求极致的最小体积）

@@ -2,25 +2,23 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-#[cfg(not(target_os = "windows"))]
 use std::sync::Once;
 
 use anyhow::{Context, Result, anyhow, bail};
 use image::AnimationDecoder;
 use image::codecs::gif::{GifDecoder, GifEncoder, Repeat};
 use image::{DynamicImage, ImageFormat};
-#[cfg(not(target_os = "windows"))]
 use libheif_rs::integration::image::register_all_decoding_hooks;
-use log::{error, info};
+use log::{error, info, warn};
 
 #[cfg(target_os = "windows")]
 use std::iter;
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(target_os = "windows")]
-use windows::core::PCWSTR;
+use windows::core::{HRESULT, PCWSTR};
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{GENERIC_READ, HRESULT};
+use windows::Win32::Foundation::GENERIC_READ;
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory,
@@ -36,7 +34,6 @@ use crate::common::{
 };
 
 const WEBP_QUALITY: f32 = 80.0;
-#[cfg(not(target_os = "windows"))]
 static HEIF_HOOKS_INIT: Once = Once::new();
 
 /// GIF 编码速度，取值范围 [1, 30]：数值越大越快、质量略降；数值越小越慢、质量越高。
@@ -93,11 +90,15 @@ fn load_any_image(src: &Path) -> Result<DynamicImage> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn load_heic_image(src: &Path) -> Result<DynamicImage> {
+fn load_heic_with_libheif(src: &Path) -> Result<DynamicImage> {
     HEIF_HOOKS_INIT.call_once(register_all_decoding_hooks);
     info!("decode heic/heif source image with libheif hook: {}", src.display());
     image::open(src).with_context(|| format!("failed to decode image: {}", src.display()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn load_heic_image(src: &Path) -> Result<DynamicImage> {
+    load_heic_with_libheif(src)
 }
 
 #[cfg(target_os = "windows")]
@@ -136,8 +137,28 @@ impl Drop for ComScope {
 #[cfg(target_os = "windows")]
 fn load_heic_image(src: &Path) -> Result<DynamicImage> {
     let _com = ComScope::enter()?;
-    info!("decode heic/heif source image with WIC: {}", src.display());
+    info!("decode heic/heif source image with WIC first: {}", src.display());
 
+    match load_heic_with_wic(src) {
+        Ok(img) => Ok(img),
+        Err(wic_err) => {
+            warn!(
+                "WIC HEIC decode failed for {}: {}; fallback to embedded libheif",
+                src.display(),
+                wic_err
+            );
+            load_heic_with_libheif(src).with_context(|| {
+                format!(
+                    "failed to decode HEIC with both WIC and libheif for {}",
+                    src.display()
+                )
+            })
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn load_heic_with_wic(src: &Path) -> Result<DynamicImage> {
     unsafe {
         let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)
             .context("failed to create WIC imaging factory")?;
@@ -150,12 +171,7 @@ fn load_heic_image(src: &Path) -> Result<DynamicImage> {
                 GENERIC_READ,
                 WICDecodeMetadataCacheOnDemand,
             )
-            .map_err(|err| {
-                anyhow!(
-                    "failed to open HEIC/HEIF decoder for {}: {err}; ensure HEIF Image Extensions are installed",
-                    src.display()
-                )
-            })?;
+            .with_context(|| format!("failed to open HEIC/HEIF decoder for {}", src.display()))?;
 
         let frame = decoder
             .GetFrame(0)
