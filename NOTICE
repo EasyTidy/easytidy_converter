@@ -1,0 +1,37 @@
+easytidy_converter — third-party components
+================================================
+
+This crate builds the native library easytidy_converter.dll used by EasyTidyPro
+for file/format conversion. It combines the following third-party components.
+
+Native libraries linked into easytidy_converter.dll
+----------------------------------------------------
+HEIC/HEIF image decoding (Windows, statically linked):
+
+  - libheif 1.21.2   LGPL-3.0   Copyright (c) struktur AG and contributors
+                     https://github.com/strukturag/libheif
+  - libde265 1.0.18  LGPL-3.0   Copyright (c) struktur AG and contributors
+                     https://github.com/strukturag/libde265
+  - aom 3.13.3       BSD-2-Clause   Copyright (c) 2016, Alliance for Open Media
+                     https://aomedia.googlesource.com/aom/
+
+Only the decoder path is built. The HEVC/H.265 encoder (x265, GPL-2.0) is
+deliberately excluded, so no GPL-2.0 code is distributed.
+
+On non-Windows targets, libheif is compiled from embedded sources via the
+libheif-rs `embedded-libheif` feature (still LGPL-3.0).
+
+Rust crate dependencies
+-----------------------
+Built on top of open-source Rust crates under permissive licenses (primarily
+MIT and Apache-2.0), including (non-exhaustive): image, webp, libheif-rs,
+typst, comrak, docx-rs, calamine, rust_xlsxwriter, pdfium-render, pdf_oxide,
+anyhow, thiserror, log. See Cargo.toml / Cargo.lock and each crate's own
+repository for the authoritative license terms.
+
+pdfium.dll (Google PDFium, BSD-3-Clause) is used for PDF rasterization.
+
+License of this crate
+---------------------
+easytidy_converter is released under LGPL-3.0-or-later. See LICENSE, COPYING
+(GPL-3.0) and COPYING.LESSER (LGPL-3.0).

@@ -2,6 +2,10 @@
 name = "easytidy_converter"
 version = "0.2.0"
 edition = "2024"
+# 本 crate 静态链接 libheif/libde265(LGPL-3.0)，整体以 LGPL-3.0-or-later 分发。
+# 详见 LICENSE / COPYING / COPYING.LESSER / NOTICE。
+license = "LGPL-3.0-or-later"
+repository = "https://github.com/EasyTidy/easytidy_converter"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

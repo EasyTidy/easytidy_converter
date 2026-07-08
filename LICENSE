@@ -1,0 +1,24 @@
+easytidy_converter
+Copyright (C) 2025 EasyTidy (tao_SaboZhang)
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License along
+with this program. If not, see <https://www.gnu.org/licenses/>.
+
+The LGPL-3.0 is the GPL-3.0 supplemented by additional permissions. The full
+texts are distributed alongside this file:
+  - COPYING.LESSER  — GNU Lesser General Public License, version 3
+  - COPYING         — GNU General Public License, version 3 (referenced by the LGPL)
+
+This library statically links libheif and libde265 (both LGPL-3.0) for HEIC/HEIF
+decoding. In accordance with the LGPL, this source repository is published so
+that you may rebuild / relink the library against a modified version of libheif
+or libde265. See NOTICE for the full list of third-party components.
